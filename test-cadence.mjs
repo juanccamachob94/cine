@@ -6,7 +6,7 @@ const viejo = new Date(Date.now() - 60 * 24 * 3600 * 1000).toISOString().slice(0
 
 const casos = [
  ['sin términos', { pending: [], unmatched: [] }, 90],
- ['término nuevo sin coincidencias (Madoka)', { pending: [], unmatched: [{ addedAt: hoy }] }, 20],
+ ['término nuevo que aún no existe en el catálogo', { pending: [], unmatched: [{ addedAt: hoy }] }, 20],
  ['término viejo que nunca apareció', { pending: [], unmatched: [{ addedAt: viejo }] }, 30],
  ['viejo + uno nuevo → manda el nuevo', { pending: [], unmatched: [{ addedAt: viejo }, { addedAt: hoy }] }, 20],
  ['película anunciada sin venta', { pending: [{}], unmatched: [] }, 20],
