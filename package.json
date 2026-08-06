@@ -1,0 +1,12 @@
+{
+ "name": "cine",
+ "version": "1.0.0",
+ "description": "Aviso inmediato de venta de boletos de cine en CDMX (Cinépolis y Cinemex) por Telegram",
+ "type": "module",
+ "scripts": {
+  "bot": "node --env-file=.env bot/index.mjs"
+ },
+ "dependencies": {
+  "grammy": "^1.44.0"
+ }
+}

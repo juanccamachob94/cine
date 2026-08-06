@@ -1,0 +1,22 @@
+# Unidad systemd para vigilar 24/7 en la Raspberry Pi.
+# Instalación:
+#  sudo cp systemd/cine-bot.service /etc/systemd/system/
+#  sudo systemctl daemon-reload
+#  sudo systemctl enable --now cine-bot
+# Logs: journalctl -u cine-bot -f
+
+[Unit]
+Description=Boletos Cine CDMX - vigilante de preventas y bot de Telegram
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=developer
+WorkingDirectory=/home/developer/cine
+ExecStart=/usr/bin/npm run bot
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
