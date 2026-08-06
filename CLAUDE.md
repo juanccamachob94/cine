@@ -45,9 +45,20 @@ Cinépolis, `X-API-Consumer-Key` en el `main.chunk` de Cinemex).
 
 ## Sondeo
 
-90 s en reposo, 20 s cuando hay algo anunciado sin venta. Son 3 peticiones por
-ciclo. Subir el ritmo es barato técnicamente, pero no hay razón: la ventana que
-importa ya está cubierta por el modo turbo.
+Ver la tabla del README. Lo que no es obvio y conviene no "optimizar":
+
+**Un término sin coincidencias va al ritmo máximo (20 s), no al mínimo.** Parece
+al revés, pero Cinemex solo publica en su catálogo lo que ya se puede comprar:
+una película pasa de invisible a comprable sin estado intermedio. Sondear
+despacio justo ahí sería el peor error posible. La versión original tenía este
+fallo y se corrigió el 06/ago/2026.
+
+El decaimiento a 30 s tras 30 días sin aparecer existe solo para que un título
+mal escrito no deje el sistema acelerado para siempre. Ante la duda, ir rápido:
+un sondeo de más no cuesta nada, llegar tarde cuesta el boleto.
+
+`check-cadence.mjs` reproduce la decisión de un ciclo sin escribir nada;
+`test-cadence.mjs` cubre la tabla completa sin tocar la red.
 
 ## Cosas que ya se probaron y no funcionan
 

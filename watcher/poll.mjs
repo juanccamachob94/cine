@@ -6,20 +6,33 @@
  * comprable en CDMX. Por eso todo gira alrededor de comparar el sondeo actual
  * contra el anterior (data/state.json), no de mirar la foto de hoy.
  *
- * Cadencia adaptativa: en reposo se sondea tranquilo, pero en cuanto una
- * película vigilada aparece anunciada sin venta abierta, el intervalo baja a
- * segundos — es exactamente la ventana en la que se gana o se pierde la
- * carrera por el boleto. Un sondeo son 3 peticiones en total, así que incluso
- * en modo turbo la carga es mínima.
+ * Cadencia adaptativa: el intervalo baja a segundos siempre que haya algo que
+ * pueda abrir venta en cualquier momento. Son dos casos, y el segundo es el
+ * que más importa:
+ *
+ * 1. Una película vigilada ya anunciada pero todavía sin venta.
+ * 2. Un término que NO coincide con nada del catálogo — se está esperando a
+ *   que aparezca. Es el caso de mayor riesgo, porque Cinemex solo publica lo
+ *   que ya se puede comprar: ahí una película pasa de invisible a comprable
+ *   de golpe, sin estado intermedio que avise. Sondear esto despacio sería
+ *   justo lo contrario de lo que hace falta.
+ *
+ * Un sondeo son 3 peticiones en total, así que ni en modo turbo pesa.
  */
 import * as cinemex from './cinemex.mjs';
 import * as cinepolis from './cinepolis.mjs';
 import { findMatches } from './match.mjs';
 import { listWatches, loadState, markSeen, saveState, wasSeen } from '../bot/store.mjs';
 
-const IDLE_MS = 90_000;  // nada inminente: ritmo de crucero
-const TURBO_MS = 20_000; // hay una peli vigilada anunciada y aún sin venta
+const IDLE_MS = 90_000;  // nada que esperar: ritmo de crucero
+const TURBO_MS = 20_000; // hay algo que puede abrir venta en cualquier momento
+const STALE_WATCH_MS = 30_000; // término viejo que nunca ha aparecido
 const ERROR_BACKOFF_MS = 120_000;
+
+// A partir de aquí, un término que jamás coincidió con nada se considera frío
+// (título mal escrito, o una película que no va a llegar): sigue vigilado, pero
+// deja de justificar el ritmo máximo.
+const STALE_AFTER_MS = 30 * 24 * 60 * 60 * 1000;
 
 /** Clave estable de una película entre sondeos. */
 const keyOf = (movie) => `${movie.chain}:${movie.id}`;
@@ -71,12 +84,15 @@ export function detect(movies, { watches = listWatches() } = {}) {
  const state = loadState();
  const alerts = [];
  const pending = [];
+ const unmatched = [];    // términos que aún no existen en ningún catálogo
  const writes = new Map();  // clave → estado a persistir
  const blocked = new Set(); // claves con alerta todavía sin entregar
  const alerted = new Set(); // una alerta por película por ciclo
 
  for (const watch of watches) {
-  for (const movie of findMatches(watch.term, movies)) {
+  const found = findMatches(watch.term, movies);
+  if (!found.length) unmatched.push(watch);
+  for (const movie of found) {
    const key = keyOf(movie);
    const onSale = isOnSale(movie);
    const previous = state[key];
@@ -116,7 +132,26 @@ export function detect(movies, { watches = listWatches() } = {}) {
   saveState(next);
  };
 
- return { alerts, pending, commit };
+ return { alerts, pending, unmatched, commit };
+}
+
+/** Antigüedad de un término, en ms. Si la fecha no se puede leer, se trata como recién puesto. */
+function ageOf(watch) {
+ const parsed = Date.parse(String(watch.addedAt ?? '').replace(' ', 'T'));
+ return Number.isNaN(parsed) ? 0 : Date.now() - parsed;
+}
+
+/**
+ * Ritmo del siguiente sondeo.
+ *
+ * Ante la duda se elige ir rápido: el costo de un sondeo de más es
+ * despreciable, y el de llegar tarde es perder el boleto.
+ */
+export function nextDelay({ pending, unmatched }) {
+ if (pending.length) return TURBO_MS;
+ if (!unmatched.length) return IDLE_MS;
+ const alguienReciente = unmatched.some((watch) => ageOf(watch) < STALE_AFTER_MS);
+ return alguienReciente ? TURBO_MS : STALE_WATCH_MS;
 }
 
 /**
@@ -144,7 +179,7 @@ export function startWatcher({ onAlert, onError = () => {} }) {
    const { movies, errors } = await snapshotAll();
    errors.forEach((e) => onError(new Error(e)));
 
-   const { alerts, pending, commit } = detect(movies, { watches });
+   const { alerts, pending, unmatched, commit } = detect(movies, { watches });
    const delivered = new Set();
 
    for (const alert of alerts) {
@@ -168,7 +203,7 @@ export function startWatcher({ onAlert, onError = () => {} }) {
    }
 
    commit(delivered);
-   delay = pending.length ? TURBO_MS : IDLE_MS;
+   delay = nextDelay({ pending, unmatched });
   } catch (err) {
    onError(err);
    delay = ERROR_BACKOFF_MS;

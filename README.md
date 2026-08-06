@@ -42,11 +42,26 @@ de compra. En Cinemex es un enlace directo al checkout de una función concreta.
 
 ### Cadencia adaptativa
 
-- **90 s** en reposo.
-- **20 s** en cuanto una película vigilada aparece anunciada pero todavía sin
- venta — es justo la ventana en la que se gana o se pierde la carrera.
+| Situación | Intervalo |
+|---|---|
+| Un término todavía no aparece en ningún catálogo | **20 s** |
+| Una película vigilada está anunciada pero sin venta | **20 s** |
+| Un término lleva más de 30 días sin aparecer nunca | 30 s |
+| Nada que esperar | 90 s |
+| Tras un error de red o de API | 120 s |
 
-Un sondeo son 3 peticiones en total, así que ni en modo turbo pesa.
+Que un término **sin coincidencias** vaya al ritmo máximo es deliberado: es el
+caso de mayor riesgo, no el de menor. Cinemex solo publica en su catálogo lo
+que ya se puede comprar, así que ahí una película pasa de invisible a comprable
+de golpe, sin estado intermedio que avise.
+
+Un sondeo son 3 peticiones en total, así que ni al ritmo máximo pesa.
+
+Para saber en qué modo está y por qué, sin tocar nada:
+
+```bash
+ssh bot 'cd ~/cine && node check-cadence.mjs'
+```
 
 ### Si falla la entrega
 
