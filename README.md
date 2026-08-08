@@ -84,11 +84,37 @@ watcher/
  cinepolis.mjs  Envoltura del fetcher de Python
  cinemex.mjs   Cliente REST
  match.mjs    Emparejamiento término ↔ título
- news.mjs    Google News RSS + Reddit
+ news.mjs    Google News RSS + Reddit (para /noticias)
+ websearch.mjs  Búsqueda web propia de la Pi (respaldo de /investiga)
 scraper/
  cinepolis_fetch.py  Cliente de Cinépolis con impersonación TLS
 systemd/
  cine-bot.service
+```
+
+### Cómo investiga `/investiga`
+
+Tres escalones, y **los tres miran internet**:
+
+1. **Gemini** con `google_search`.
+2. **Groq** con su agente `compound` (o `compound-mini`, que gasta menos del
+  límite por minuto). Ante un 429/413 espera lo que indique la propia API y
+  reintenta antes de rendirse.
+3. **Búsqueda propia de la Pi** (`watcher/websearch.mjs`): Google News RSS para
+  titulares mexicanos con fecha, DuckDuckGo para URLs directas, y de esas se
+  lee el texto real de las notas. La IA solo resume esas fuentes. Si no queda
+  ninguna IA disponible, se manda la lista de enlaces sin resumir.
+
+Lo que **no** existe es un escalón que conteste de memoria, y es deliberado: la
+fecha de una preventa se anuncia esta semana y los modelos se entrenaron hace
+meses. Antes había uno, con un aviso al pie que era fácil de pasar por alto, y
+el 08/ago/2026 se le vio afirmar que no había fecha de preventa de Avatar
+cuando la prensa mexicana llevaba meses publicándola. Si no se puede buscar de
+verdad, el comando falla y lo dice.
+
+```bash
+ssh bot 'cd ~/cine && node --env-file=.env test-research.mjs "¿cuándo abre la preventa de X?"'
+ssh bot 'cd ~/cine && node --env-file=.env test-research.mjs --fuentes "..."'  # solo la búsqueda propia
 ```
 
 ### Por qué Cinépolis va en Python

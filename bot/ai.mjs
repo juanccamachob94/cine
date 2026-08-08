@@ -8,7 +8,8 @@
  *  ("ya quiero saber de avatar" → agregar término) y devolverlo estructurado.
  * - research: investigar con búsqueda web cuándo abre una preventa.
  */
-import { groqAvailable, groqJson, groqResearch } from './groq.mjs';
+import { groqAvailable, groqJson, groqResearch, groqSummarize } from './groq.mjs';
+import { gatherSources, sourcesBlock } from '../watcher/websearch.mjs';
 
 const API_KEY = process.env.GEMINI_API_KEY;
 // El tier gratuito tiene cuota independiente POR MODELO: si flash se agota,
@@ -149,47 +150,110 @@ Responde en español, en texto plano sin markdown, con lo esencial primero:
 nada confirmado, dilo claramente en la primera línea en lugar de rellenar.
 Distingue siempre lo confirmado de lo rumorado, y cita las fuentes con su URL.`;
 
+/**
+ * Gemini con búsqueda de verdad, o nada.
+ *
+ * Antes había dos escalones más aquí y los dos acababan en lo mismo. El de
+ * "solo url_context" parecía prudente, pero `url_context` únicamente sabe
+ * abrir URLs que le pases, y a `/investiga` llega una pregunta, no enlaces:
+ * sin nada que abrir el modelo respondía de memoria bajo un aviso que decía
+ * "investigué leyendo URLs". Se comprobó el 08/ago/2026: contestó que no había
+ * fecha de preventa de Avatar mientras la prensa mexicana llevaba meses con la
+ * fecha publicada. El tercer escalón, sin herramientas, era eso mismo sin
+ * disimulo. Si aquí no hay búsqueda, el trabajo es de `research()`.
+ */
 async function geminiResearch(query, stamp) {
- // Degradación por cuota: el free tier limita google_search por día.
- const modes = [
-  { tools: [{ google_search: {} }, { url_context: {} }], note: '' },
-  {
-   tools: [{ url_context: {} }],
-   note: '\n\n(⚠️ Cuota diaria de búsqueda agotada: investigué solo leyendo URLs.)',
-  },
-  {
-   tools: undefined,
-   note: '\n\n(⚠️ Sin acceso web ahora mismo: respuesta basada solo en conocimiento del modelo.)',
-  },
- ];
- let lastErr;
- for (const mode of modes) {
-  try {
-   const { text, model } = await callAnyModel({
-    systemInstruction: { parts: [{ text: researcherSystem(stamp) }] },
-    contents: [{ parts: [{ text: query }] }],
-    ...(mode.tools ? { tools: mode.tools } : {}),
-    generationConfig: { maxOutputTokens: 8192 },
-   });
-   return `${text}${mode.note}\n\n🤖 Investigó: Gemini (${model})`;
-  } catch (err) {
-   lastErr = err;
-   if (!/429/.test(err.message)) throw err;
-  }
- }
- throw lastErr;
+ const { text, model } = await callAnyModel({
+  systemInstruction: { parts: [{ text: researcherSystem(stamp) }] },
+  contents: [{ parts: [{ text: query }] }],
+  tools: [{ google_search: {} }, { url_context: {} }],
+  generationConfig: { maxOutputTokens: 8192 },
+ });
+ return `${text}\n\n🤖 Investigó: Gemini (${model})`;
 }
 
-/** Investigación web sobre preventas. Cae a Groq si Gemini no puede. */
+const groundedSystem = (stamp) => `${researcherSystem(stamp)}
+
+Te doy abajo los resultados de una búsqueda web hecha hace unos segundos.
+Responde ÚNICAMENTE con lo que digan esas fuentes. No completes con lo que
+creas recordar: tu memoria es de hace meses y aquí lo que importa es lo de
+esta semana. Si las fuentes no contestan la pregunta, la primera línea es
+que no hay nada confirmado todavía, y luego lo más cercano que sí traigan.
+
+Cita cada dato con la URL completa de la fuente de donde salió, escrita tal
+cual y a la vista: esto se lee en Telegram, donde un marcador tipo [1] o 【1】
+no lleva a ningún lado. Algunas fuentes vienen sin URL: a esas cítalas por
+medio y fecha. NUNCA escribas una URL que no aparezca tal cual arriba.`;
+
+/** Fuentes en crudo, cuando ni siquiera queda un modelo para redactarlas. */
+const rawSources = (sources) =>
+ [
+  'No pude usar ninguna IA en este momento (cuotas agotadas), así que te dejo',
+  'lo que encontré en la web hace un momento, sin resumir:',
+  '',
+  ...sources.slice(0, 8).map((s, i) => `${i + 1}. ${s.title}\n  ${s.source}${s.date ? ` · ${s.date}` : ''}\n  ${s.url}`),
+ ].join('\n');
+
+/**
+ * Último escalón: buscamos nosotros y la IA solo resume lo encontrado.
+ * Más lento que preguntarle a un buscador con IA, pero siempre es información
+ * de hoy, y si falla falla de forma evidente (sin fuentes no hay respuesta).
+ */
+async function groundedResearch(query, stamp) {
+ const sources = await gatherSources(query);
+ if (!sources.length) {
+  throw new Error('no encontré nada en la web sobre eso ahora mismo');
+ }
+ const prompt = `Pregunta: ${query}\n\n<resultados_de_busqueda>\n${sourcesBlock(sources)}\n</resultados_de_busqueda>`;
+ const note = '\n\n(Ninguna IA con búsqueda propia estaba disponible: busqué yo en Google Noticias y DuckDuckGo, y la IA solo resumió esas fuentes.)';
+
+ try {
+  const { text, model } = await callAnyModel({
+   systemInstruction: { parts: [{ text: groundedSystem(stamp) }] },
+   contents: [{ parts: [{ text: prompt }] }],
+   generationConfig: { maxOutputTokens: 8192 },
+  });
+  return `${text}${note}\n\n🤖 Resumió: Gemini (${model})`;
+ } catch (err) {
+  if (!groqAvailable()) return rawSources(sources);
+  try {
+   const { text, model } = await groqSummarize(groundedSystem(stamp), prompt);
+   return `${text}${note}\n\n🤖 Resumió: Groq (${model})`;
+  } catch {
+   return rawSources(sources);
+  }
+ }
+}
+
+/**
+ * Investigación sobre preventas, siempre contra la web.
+ *
+ * Tres escalones, y los tres miran internet: Gemini con `google_search`, Groq
+ * con su agente `compound`, y —si ninguno puede— búsqueda hecha por la Pi con
+ * la IA limitada a resumir lo encontrado.
+ *
+ * Lo que NO existe es un escalón que conteste de memoria. Lo hubo, con un
+ * aviso al pie, y era la peor combinación posible: la respuesta se leía con la
+ * misma seguridad que una buena, pero la fecha de una preventa anunciada esta
+ * semana no puede salir de un modelo entrenado hace meses. Preferimos quedarnos
+ * sin respuesta antes que dar una inventada; por eso el fallo se propaga.
+ */
 export async function research(query, { stamp }) {
  try {
   return await geminiResearch(query, stamp);
- } catch (err) {
-  if (!groqAvailable()) throw err;
-  const { text, web, model } = await groqResearch(researcherSystem(stamp), query);
-  const note = web
-   ? '\n\n(Cuota de Gemini agotada: investigué con Groq y su propia búsqueda web.)'
-   : '\n\n(⚠️ Groq quedó SIN acceso web: respuesta basada solo en conocimiento del modelo.)';
-  return `${text}${note}\n\n🤖 Investigó: Groq (${model})`;
+ } catch (geminiErr) {
+  if (groqAvailable()) {
+   try {
+    const { text, model } = await groqResearch(researcherSystem(stamp), query);
+    return `${text}\n\n(Cuota de Gemini agotada: investigué con Groq y su propia búsqueda web.)\n\n🤖 Investigó: Groq (${model})`;
+   } catch {
+    // Groq tampoco pudo buscar: queda la búsqueda propia.
+   }
+  }
+  try {
+   return await groundedResearch(query, stamp);
+  } catch (ownErr) {
+   throw new Error(`${ownErr.message} (Gemini: ${geminiErr.message.slice(0, 120)})`);
+  }
  }
 }

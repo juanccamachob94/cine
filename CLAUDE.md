@@ -27,6 +27,16 @@ justo el único fallo inaceptable aquí.
 
 **`markSeen` va después del envío,** por lo mismo.
 
+**`/investiga` no contesta de memoria, nunca.** Los tres escalones de
+`research()` miran internet; el último busca desde la Pi y deja a la IA solo
+resumir lo encontrado. Es tentador añadir un respaldo "por si acaso" que llame
+al modelo sin herramientas con un aviso al pie: ya existía y se quitó el
+08/ago/2026. Contestó que Avatar no tenía fecha de preventa anunciada mientras
+media prensa mexicana llevaba meses con la fecha, y el aviso al pie no salva
+nada porque la respuesta se lee con la misma seguridad que una buena. Aquí una
+fecha inventada es peor que un error visible: se pierde el boleto igual, pero
+sin saber que había que revisar.
+
 ## Las APIs de las cadenas
 
 Ambas claves salen de los bundles JS públicos de cada sitio. Si una cadena las
@@ -70,6 +80,22 @@ un sondeo de más no cuesta nada, llegar tarde cuesta el boleto.
 - X/Twitter e Instagram: hoy no hay camino gratuito y estable sin credenciales.
  `watcher/news.mjs` usa Google News RSS y Reddit, que sí tienen feed abierto y
  en la práctica recogen lo que publican las cuentas oficiales.
+- Los enlaces del RSS de Google News **no se pueden resolver** al artículo: son
+ redirecciones que solo desenreda JavaScript. De ahí salen titulares con medio
+ y fecha; para leer cuerpos hay que pasar por DuckDuckGo, que sí da URL directa.
+- DuckDuckGo responde **202 y una página de "anomaly"** si el user-agent es de
+ bot. Necesita uno de navegador; Google News no.
+
+## Cuotas de IA (comprobado el 08/ago/2026)
+
+- Groq free tier: **8000 tokens por minuto** para toda la organización, y la
+ búsqueda de `compound` gasta de ahí. Por eso `groqResearch` pide 2048 de
+ salida (con 3072 devolvía 413 siempre) y reintenta leyendo el `try again in
+ Xs` de la propia respuesta.
+- Gemini free tier: la cuota diaria se agota con el uso normal del grupo, así
+ que el escalón de Groq no es teórico — es el que corre casi siempre.
+- Las claves se comparten con `credito`: lo que gasta un proyecto se lo quita
+ al otro.
 
 ## Telegram
 
