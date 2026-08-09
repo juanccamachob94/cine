@@ -164,15 +164,38 @@ Distingue siempre lo confirmado de lo rumorado, y cita las fuentes con su URL.`;
  * fecha de preventa de Avatar mientras la prensa mexicana llevaba meses con la
  * fecha publicada. El tercer escalón, sin herramientas, era eso mismo sin
  * disimulo. Si aquí no hay búsqueda, el trabajo es de `research()`.
+ *
+ * ⚠️ 09/ago/2026: `google_search` devuelve **429 RESOURCE_EXHAUSTED en la
+ * primera llamada del día**, y no es esta clave: se probó con las cinco que
+ * hay en la Pi, de cuatro cuentas distintas, y todas igual. El grounding con
+ * Búsqueda ya no entra en el tier gratuito. La generación normal y
+ * `url_context` siguen dando 200, así que la clave está perfectamente viva.
+ * Cambiarla por otra gratuita no arregla nada.
  */
+const REPRUEBA_MS = 6 * 60 * 60 * 1000;
+let busquedaNativaCaida = 0;
+
+/**
+ * Interruptor: tras un 429 de `google_search` no se vuelve a intentar en seis
+ * horas. Sin esto, cada `/investiga` paga la latencia de una petición que
+ * sabemos que va a fallar. Con esto, el día que Google lo reactive (o si un
+ * día hay plan de pago) el bot lo detecta solo, sin tocar código.
+ */
+const busquedaNativaViva = () => Date.now() - busquedaNativaCaida > REPRUEBA_MS;
+
 async function geminiResearch(query, stamp) {
- const { text, model } = await callAnyModel({
-  systemInstruction: { parts: [{ text: researcherSystem(stamp) }] },
-  contents: [{ parts: [{ text: query }] }],
-  tools: [{ google_search: {} }, { url_context: {} }],
-  generationConfig: { maxOutputTokens: 8192 },
- });
- return `${text}\n\n🤖 Investigó: Gemini (${model})`;
+ try {
+  const { text, model } = await callAnyModel({
+   systemInstruction: { parts: [{ text: researcherSystem(stamp) }] },
+   contents: [{ parts: [{ text: query }] }],
+   tools: [{ google_search: {} }, { url_context: {} }],
+   generationConfig: { maxOutputTokens: 8192 },
+  });
+  return `${text}\n\n🤖 Investigó: Gemini (${model}) con Búsqueda de Google`;
+ } catch (err) {
+  if (/429/.test(err.message)) busquedaNativaCaida = Date.now();
+  throw err;
+ }
 }
 
 const groundedSystem = (stamp) => `${researcherSystem(stamp)}
@@ -198,9 +221,13 @@ const rawSources = (sources) =>
  ].join('\n');
 
 /**
- * Último escalón: buscamos nosotros y la IA solo resume lo encontrado.
- * Más lento que preguntarle a un buscador con IA, pero siempre es información
- * de hoy, y si falla falla de forma evidente (sin fuentes no hay respuesta).
+ * El escalón de trabajo: buscamos nosotros y la IA solo ordena lo encontrado.
+ *
+ * Nació como último recurso y desde el 09/ago/2026 es el camino normal,
+ * porque el grounding nativo de Gemini dejó de estar en el tier gratuito.
+ * No es un consuelo: la información es siempre de hoy, las URL son reales
+ * porque las trajo la Pi, y si falla falla de forma evidente — sin fuentes
+ * no hay respuesta. Lo único que se pierde es velocidad.
  */
 async function groundedResearch(query, stamp) {
  const sources = await gatherSources(query);
@@ -208,7 +235,7 @@ async function groundedResearch(query, stamp) {
   throw new Error('no encontré nada en la web sobre eso ahora mismo');
  }
  const prompt = `Pregunta: ${query}\n\n<resultados_de_busqueda>\n${sourcesBlock(sources)}\n</resultados_de_busqueda>`;
- const note = '\n\n(Ninguna IA con búsqueda propia estaba disponible: busqué yo en Google Noticias y DuckDuckGo, y la IA solo resumió esas fuentes.)';
+ const note = '\n\n(Busqué yo en Google Noticias y DuckDuckGo; la IA solo ordenó esas fuentes.)';
 
  try {
   const { text, model } = await callAnyModel({
@@ -231,32 +258,52 @@ async function groundedResearch(query, stamp) {
 /**
  * Investigación sobre preventas, siempre contra la web.
  *
- * Tres escalones, y los tres miran internet: Gemini con `google_search`, Groq
- * con su agente `compound`, y —si ninguno puede— búsqueda hecha por la Pi con
- * la IA limitada a resumir lo encontrado.
+ * Tres escalones, y los tres miran internet:
+ *  1. Gemini con `google_search` — hoy caído por cuota; se reprueba cada
+ *   seis horas por si vuelve.
+ *  2. La Pi busca (Google Noticias + DuckDuckGo, leyendo el texto real de
+ *   las notas) y **Gemini redacta** con esas fuentes delante.
+ *  3. Groq con su agente `compound`, que trae su propia búsqueda.
  *
- * Lo que NO existe es un escalón que conteste de memoria. Lo hubo, con un
- * aviso al pie, y era la peor combinación posible: la respuesta se leía con la
- * misma seguridad que una buena, pero la fecha de una preventa anunciada esta
- * semana no puede salir de un modelo entrenado hace meses. Preferimos quedarnos
- * sin respuesta antes que dar una inventada; por eso el fallo se propaga.
+ * El orden cambió el 09/ago/2026. Antes Groq iba en el segundo puesto, así
+ * que al caerse el grounding de Gemini el bot contestaba SIEMPRE con Groq y
+ * parecía que Gemini estaba roto — cuando lo único roto era una herramienta.
+ * Ahora Gemini vuelve a ser quien responde; lo que cambia es de dónde salen
+ * los hechos, y salen de una búsqueda hecha hace tres segundos.
+ *
+ * Lo que sigue sin existir es un escalón que conteste de memoria. Lo hubo,
+ * con un aviso al pie, y era la peor combinación posible: la respuesta se
+ * leía con la misma seguridad que una buena, pero la fecha de una preventa
+ * anunciada esta semana no puede salir de un modelo entrenado hace meses.
+ * Preferimos quedarnos sin respuesta antes que dar una inventada.
  */
 export async function research(query, { stamp }) {
- try {
-  return await geminiResearch(query, stamp);
- } catch (geminiErr) {
-  if (groqAvailable()) {
-   try {
-    const { text, model } = await groqResearch(researcherSystem(stamp), query);
-    return `${text}\n\n(Cuota de Gemini agotada: investigué con Groq y su propia búsqueda web.)\n\n🤖 Investigó: Groq (${model})`;
-   } catch {
-    // Groq tampoco pudo buscar: queda la búsqueda propia.
-   }
-  }
+ const tropiezos = [];
+
+ if (busquedaNativaViva()) {
   try {
-   return await groundedResearch(query, stamp);
-  } catch (ownErr) {
-   throw new Error(`${ownErr.message} (Gemini: ${geminiErr.message.slice(0, 120)})`);
+   return await geminiResearch(query, stamp);
+  } catch (err) {
+   tropiezos.push(`Gemini con Búsqueda: ${err.message.slice(0, 100)}`);
   }
  }
+
+ try {
+  return await groundedResearch(query, stamp);
+ } catch (err) {
+  tropiezos.push(`búsqueda propia: ${err.message.slice(0, 100)}`);
+ }
+
+ // Solo si la Pi no encontró NADA en la web. El agente de Groq busca por su
+ // cuenta y a veces llega donde no llegan DuckDuckGo ni Google Noticias.
+ if (groqAvailable()) {
+  try {
+   const { text, model } = await groqResearch(researcherSystem(stamp), query);
+   return `${text}\n\n(Mi búsqueda no encontró nada: investigó Groq con su propio agente web.)\n\n🤖 Investigó: Groq (${model})`;
+  } catch (err) {
+   tropiezos.push(`Groq: ${err.message.slice(0, 100)}`);
+  }
+ }
+
+ throw new Error(tropiezos.join(' | '));
 }

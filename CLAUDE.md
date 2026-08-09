@@ -37,6 +37,29 @@ nada porque la respuesta se lee con la misma seguridad que una buena. Aquí una
 fecha inventada es peor que un error visible: se pierde el boleto igual, pero
 sin saber que había que revisar.
 
+**El grounding nativo de Gemini está caído, y no es la clave.** Desde el
+09/ago/2026 `google_search` devuelve **429 RESOURCE_EXHAUSTED en la primera
+llamada del día**. Se probó con las cinco claves que hay en la Pi, de cuatro
+cuentas distintas: todas igual. La generación normal, el `responseSchema` y
+`url_context` siguen dando 200 con esas mismas claves, así que **no hay nada
+que arreglar cambiando de clave gratuita** — el grounding con Búsqueda salió
+del tier gratuito.
+
+Consecuencia: el escalón 2 (la Pi busca, Gemini redacta) pasó a ser el camino
+normal, y por eso `research()` lo puso **por delante de Groq** el 09/ago/2026.
+Antes Groq iba segundo, así que al caerse el grounding el bot contestaba
+siempre con Groq y parecía que Gemini estaba roto; lo único roto era una
+herramienta. El escalón 1 se conserva como sonda con un interruptor de seis
+horas: tras un 429 no se reintenta hasta pasado ese rato, y el día que Google
+lo reactive el bot lo detecta solo.
+
+⚠️ Ojo con `credito`: allí el mismo 429 cae a un modo "solo `url_context`",
+que responde 200 y parece que Gemini funciona. Pero `url_context` solo sabe
+abrir URLs que le pases, y a una pregunta sin enlaces contesta **de memoria**
+bajo un aviso que dice que investigó. Es exactamente el fallo que se quitó de
+aquí el 08/ago/2026. Si algún día se toca `credito`, es lo primero que hay que
+mirar.
+
 ## Las APIs de las cadenas
 
 Ambas claves salen de los bundles JS públicos de cada sitio. Si una cadena las
@@ -92,10 +115,14 @@ un sondeo de más no cuesta nada, llegar tarde cuesta el boleto.
  búsqueda de `compound` gasta de ahí. Por eso `groqResearch` pide 2048 de
  salida (con 3072 devolvía 413 siempre) y reintenta leyendo el `try again in
  Xs` de la propia respuesta.
-- Gemini free tier: la cuota diaria se agota con el uso normal del grupo, así
- que el escalón de Groq no es teórico — es el que corre casi siempre.
-- Las claves se comparten con `credito`: lo que gasta un proyecto se lo quita
- al otro.
+- Gemini free tier: la cuota de **generación** aguanta bien el uso del grupo.
+ La que no existe es la de **grounding con Búsqueda** (ver arriba): esa da
+ 429 desde la primera llamada.
+- ⚠️ Corregido el 09/ago/2026: **las claves NO se comparten con `credito`**.
+ Aquí decía que sí, y es falso — `cine`, `credito` y `cv` tienen cada uno su
+ propia `GEMINI_API_KEY`, de cuentas distintas (y `crepas`, dos más). Lo que
+ gaste un proyecto no le quita cuota a los otros. Comprobado consultando los
+ cuatro `.env`.
 
 ## Telegram
 
