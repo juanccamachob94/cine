@@ -12,9 +12,12 @@ import { groqAvailable, groqJson, groqResearch, groqSummarize } from './groq.mjs
 import { gatherSources, sourcesBlock } from '../watcher/websearch.mjs';
 
 const API_KEY = process.env.GEMINI_API_KEY;
+// Versión FIJA, no el alias `-latest`: ese alias migró solo de 2.5 a 3.x y se
+// llevó por delante el grounding con Búsqueda (gratis en 2.5, "Not available"
+// en 3.x) sin que cambiara una línea de código. Actualizar a mano y probando.
 // El tier gratuito tiene cuota independiente POR MODELO: si flash se agota,
 // flash-lite es un segundo bolsillo con la misma API key.
-const MODELS = ['gemini-flash-latest', 'gemini-flash-lite-latest'];
+const MODELS = ['gemini-3.5-flash', 'gemini-3.5-flash-lite'];
 const endpointOf = (model) =>
  `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 

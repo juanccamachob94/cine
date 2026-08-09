@@ -96,7 +96,9 @@ systemd/
 
 Tres escalones, y **los tres miran internet**:
 
-1. **Gemini** con `google_search`.
+1. **Gemini** (`gemini-3.5-flash`) con `google_search`. Requiere billing: en
+  los modelos 3.x el grounding con Búsqueda no está en el tier gratuito, así
+  que sin tarjeta este escalón siempre falla con 429 y contesta el 2.
 2. **Groq** con su agente `compound` (o `compound-mini`, que gasta menos del
   límite por minuto). Ante un 429/413 espera lo que indique la propia API y
   reintenta antes de rendirse.
