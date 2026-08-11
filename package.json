@@ -7,6 +7,7 @@
   "bot": "node --env-file=.env bot/index.mjs"
  },
  "dependencies": {
+  "dotenv": "^17.4.2",
   "grammy": "^1.44.0"
  }
 }
