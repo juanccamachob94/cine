@@ -16,9 +16,14 @@ La API key es la del bundle público del sitio (está en el JS que sirve
 cinepolis.com a cualquier visitante); no hay credenciales de usuario aquí.
 """
 import json
-import sys
+import os
+from dotenv import load_dotenv
 
 from curl_cffi import requests
+load_dotenv()
+API_KEY = os.getenv("CINEPOLIS_API_KEY")
+if not API_KEY:
+    raise ValueError("CINEPOLIS_API_KEY no está definida en .env")
 
 API_KEY = ""
 BILLBOARDS = "https://api-g.cinepolis.com/v2/billboards/graphql"
