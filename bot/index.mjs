@@ -8,7 +8,7 @@
  *
  * Long polling: funciona detrás del NAT de casa, sin abrir puertos.
  */
-import { Bot } from 'grammy';
+import { Bot, InlineKeyboard } from 'grammy';
 import { processMessage, research } from './ai.mjs';
 import {
  announcedAlert, newsReport, onSaleAlert, statusReport, watchList,
@@ -18,6 +18,7 @@ import {
  removeWatch, saveLogEntry,
 } from './store.mjs';
 import { findMatches } from '../watcher/match.mjs';
+import { flashMessage, isFlashTarget, watchForPlazaCarso } from '../watcher/madoka-flash.mjs';
 import { research as socialResearch } from '../watcher/news.mjs';
 import { snapshotAll, showtimesOf, startWatcher } from '../watcher/poll.mjs';
 
@@ -292,6 +293,19 @@ async function describeTerm(term, movies) {
 
 // ---------------------------------------------------------------- vigilante
 
+/** Botón de un tap al link de compra. Nunca lanza: un fallo aquí no debe tocar la alerta principal. */
+async function sendFlashButton(chatId, movie) {
+ try {
+  const { text, url, label } = await flashMessage(movie);
+  await bot.api.sendMessage(chatId, text, {
+   reply_markup: new InlineKeyboard().url(label, url),
+   link_preview_options: { is_disabled: true },
+  });
+ } catch (err) {
+  console.error('[flash-assist]', err.message);
+ }
+}
+
 startWatcher({
  async onAlert(alert) {
   const text = alert.kind === 'onsale' ? onSaleAlert(alert) : announcedAlert(alert);
@@ -299,6 +313,25 @@ startWatcher({
   // por entregada y la reintentará en el siguiente ciclo.
   await send(GROUP_CHAT_ID, text);
   saveLogEntry(`${alert.kind}: ${alert.movie.title} (${alert.movie.chain})`, text);
+
+  // Flash-assist: solo para Madoka Walpurgisnacht: Risen, y solo en la
+  // alerta de venta abierta. Va después y en su propio try/catch (dentro de
+  // sendFlashButton) para que un fallo aquí no reintente ni duplique la
+  // alerta principal, que ya se entregó.
+  if (alert.kind === 'onsale' && isFlashTarget(alert.movie)) {
+   await sendFlashButton(GROUP_CHAT_ID, alert.movie);
+   watchForPlazaCarso(alert.movie, {
+    onFound: ({ url }) =>
+     bot.api.sendMessage(
+      GROUP_CHAT_ID,
+      '🎯 Plaza Carso ya tiene función — un tap y eliges asiento.',
+      {
+       reply_markup: new InlineKeyboard().url('🎟️ Comprar — Plaza Carso', url),
+       link_preview_options: { is_disabled: true },
+      }
+     ).catch((err) => console.error('[flash-assist]', err.message)),
+   });
+  }
  },
  onError(err) {
   // Los fallos de sondeo son ruido operativo (una API que parpadea, la red

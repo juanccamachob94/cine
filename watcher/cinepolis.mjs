@@ -43,5 +43,13 @@ function safeParse(text) {
 /** Catálogo nacional + qué está disponible en cines de CDMX. */
 export const snapshot = () => run('snapshot');
 
-/** Funciones reales (con sessionId) de una película en cines de CDMX. */
+/** Funciones y enlace de compra de una película concreta. */
 export const showtimes = (movieId) => run('showtimes', movieId);
+
+/**
+ * Funciones de una película en cines concretos, sin el corte de 40 que
+ * aplica showtimes() sobre toda CDMX (ver scraper/cinepolis_fetch.py). Para
+ * cuando hace falta saber con certeza si UN cine puntual ya tiene función.
+ */
+export const showtimesAt = (movieId, cinemaIds) =>
+ run('showtimes-cinema', movieId, cinemaIds.join(','));

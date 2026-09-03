@@ -11,12 +11,15 @@ lo invoca como subproceso y lee JSON por stdout.
 Uso:
   cinepolis_fetch.py snapshot      → catálogo nacional + qué se vende en CDMX
   cinepolis_fetch.py showtimes <movieId> → funciones reales en cines de CDMX
+  cinepolis_fetch.py showtimes-cinema <movieId> <cinemaId,cinemaId,...>
+    → funciones reales, restringidas a cines concretos (sin el corte de 40)
 
 La API key es la del bundle público del sitio (está en el JS que sirve
 cinepolis.com a cualquier visitante); no hay credenciales de usuario aquí.
 """
 import json
 import os
+import sys
 from dotenv import load_dotenv
 
 from curl_cffi import requests
@@ -25,7 +28,6 @@ API_KEY = os.getenv("CINEPOLIS_API_KEY")
 if not API_KEY:
     raise ValueError("CINEPOLIS_API_KEY no está definida en .env")
 
-API_KEY = ""
 BILLBOARDS = "https://api-g.cinepolis.com/v2/billboards/graphql"
 LOCATIONS = "https://api-g.cinepolis.com/shared-services/locations/graphql"
 HEADERS = {
@@ -132,8 +134,9 @@ def snapshot():
   return {"chain": "Cinépolis", "cinemasCdmx": len(cinemas), "movies": out}
 
 
-def showtimes(movie_id):
-  cinemas = cdmx_cinemas()
+def _sessions_for(movie_id, cinemas):
+  """Funciones reales para una lista concreta de cines. Sin truncar: quien
+  llama decide si le hace falta un tope."""
   by_id = {c["id"]: c["name"] for c in cinemas}
   dates, sessions = set(), []
   for i in range(0, len(cinemas), CINEMA_BATCH):
@@ -149,6 +152,7 @@ def showtimes(movie_id):
           for show in lang["showtimes"]:
             sessions.append({
               "cinema": by_id.get(schedule["cinemaId"], schedule["cinemaId"]),
+              "cinemaId": schedule["cinemaId"],
               "date": day["date"],
               "datetime": show["datetime"],
               "language": lang.get("displayLanguage") or lang.get("language"),
@@ -156,24 +160,60 @@ def showtimes(movie_id):
               "sessionId": show["sessionId"],
             })
   sessions.sort(key=lambda s: s["datetime"])
+  return dates, sessions
+
+
+def showtimes(movie_id):
+  cinemas = cdmx_cinemas()
+  dates, sessions = _sessions_for(movie_id, cinemas)
   return {
     "chain": "Cinépolis",
     "movieId": movie_id,
     "dates": sorted(dates),
     "cinemas": len({s["cinema"] for s in sessions}),
     "count": len(sessions),
+    # Corte a 40: esto es para mostrar en Telegram, no para decidir si una
+    # función concreta existe. Por eso showtimes_for_cinemas() no trunca —
+    # con 87 cines en CDMX, una función de un cine puntual podría quedar
+    # fuera de las 40 más tempranas de toda la ciudad aunque ya esté publicada.
     "sessions": sessions[:40],
     "url": f"https://cinepolis.com/mx/detalle/{movie_id}",
   }
 
 
+def showtimes_for_cinemas(movie_id, cinema_ids):
+  """
+  Como showtimes(), pero restringido a una lista concreta de cines (por su
+  slug de cinemaId), sin el corte de 40. Existe para el flash-assist de Plaza
+  Carso: necesita saber con certeza si ESE cine ya tiene función, no una
+  muestra de las funciones más tempranas de toda CDMX.
+  """
+  all_cinemas = cdmx_cinemas()
+  wanted = set(cinema_ids)
+  cinemas = [c for c in all_cinemas if c["id"] in wanted]
+  if not cinemas:
+    raise RuntimeError(f"Ninguno de los cines {cinema_ids} está en el catálogo de CDMX")
+  dates, sessions = _sessions_for(movie_id, cinemas)
+  return {
+    "chain": "Cinépolis",
+    "movieId": movie_id,
+    "dates": sorted(dates),
+    "cinemas": len({s["cinema"] for s in sessions}),
+    "count": len(sessions),
+    "sessions": sessions,
+    "url": f"https://cinepolis.com/mx/detalle/{movie_id}",
+  }
+
+
 def main():
-  command = sys.argv[1] if len(sys.argv) > 1 else "snapshot"
   try:
+    command = sys.argv[1] if len(sys.argv) > 1 else "snapshot"
     if command == "snapshot":
       result = snapshot()
     elif command == "showtimes":
       result = showtimes(sys.argv[2])
+    elif command == "showtimes-cinema":
+      result = showtimes_for_cinemas(sys.argv[2], sys.argv[3].split(","))
     else:
       raise RuntimeError(f"Comando desconocido: {command}")
   except Exception as err: # el bot distingue el fallo por la clave "error"
