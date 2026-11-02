@@ -6,7 +6,7 @@ proyecto y cómo se usa, ver `README.md`.
 ## Dónde vive
 
 - Fuente en el Mac: `~/cine`. Producción en la Pi: `/home/developer/cine`
- (`ssh developer@192.168.0.95`, alias `bot`), como `cine-bot.service`.
+ (comando `bot`; IP dinámica, no usar IP fija), como `cine-bot.service`.
 - Se despliega con `rsync` (ver README). **`data/` y `.env` no se sincronizan**:
  son estado y secretos de la Pi.
 - Mismo patrón que los proyectos `cv` y `credito` de la misma Pi: Node + grammY,

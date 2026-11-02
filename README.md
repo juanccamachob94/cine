@@ -60,7 +60,7 @@ Un sondeo son 3 peticiones en total, así que ni al ritmo máximo pesa.
 Para saber en qué modo está y por qué, sin tocar nada:
 
 ```bash
-ssh bot 'cd ~/cine && node check-cadence.mjs'
+bot 'cd ~/cine && node check-cadence.mjs'
 ```
 
 ### Si falla la entrega
@@ -115,8 +115,8 @@ cuando la prensa mexicana llevaba meses publicándola. Si no se puede buscar de
 verdad, el comando falla y lo dice.
 
 ```bash
-ssh bot 'cd ~/cine && node --env-file=.env test-research.mjs "¿cuándo abre la preventa de X?"'
-ssh bot 'cd ~/cine && node --env-file=.env test-research.mjs --fuentes "..."'  # solo la búsqueda propia
+bot 'cd ~/cine && node --env-file=.env test-research.mjs "¿cuándo abre la preventa de X?"'
+bot 'cd ~/cine && node --env-file=.env test-research.mjs --fuentes "..."'  # solo la búsqueda propia
 ```
 
 ### Por qué Cinépolis va en Python
@@ -128,13 +128,13 @@ invoca como subproceso y lee JSON por stdout. Cinemex no necesita nada de esto.
 
 ## Despliegue
 
-Corre en la Raspberry Pi (`ssh developer@192.168.0.95`, alias `bot`) como
+Corre en la Raspberry Pi (comando `bot`; IP dinámica, no usar IP fija) como
 `cine-bot.service`, en `/home/developer/cine`.
 
 ```bash
 rsync -az --exclude node_modules --exclude .env --exclude 'data/*' \
- ./ developer@192.168.0.95:/home/developer/cine/
-ssh bot 'cd ~/cine && npm install && sudo systemctl restart cine-bot'
+ ./ developer@raspberrypi.local:/home/developer/cine/
+bot 'cd ~/cine && npm install && sudo systemctl restart cine-bot'
 ```
 
 Requisitos en la Pi: Node 20+, Python 3.11+ y `curl_cffi`
